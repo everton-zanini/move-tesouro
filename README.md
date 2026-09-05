@@ -38,10 +38,11 @@ npm install
 npm run dev
 ```
 
-Se a instalação do pacote `canvas` (dependência transitiva da MindAR, usada só pela ferramenta de
-compilação de marcadores) falhar por falta de toolchain de build nativo no seu sistema, instale
-com `npm install --ignore-scripts` — o jogo em si não depende do binário nativo do `canvas` (só a
-ferramenta em `tools/` usa uma alternativa que roda no navegador, sem precisar dele).
+> `canvas` é uma dependência transitiva da MindAR (usada só pelo compilador Node dela, que este
+> projeto não usa) e exige um toolchain de build nativo para compilar do zero. Para evitar
+> depender disso em qualquer ambiente (Windows local, Vercel, CI), o `package.json` já substitui
+> `canvas` por um pacote vazio via `overrides` — `npm install` funciona direto, sem precisar de
+> compilador C++ instalado.
 
 O terminal vai mostrar um endereço local (`https://localhost:5173`) e endereços de rede
 (`https://SEU-IP-NA-REDE:5173`) — este segundo é o que você usa para abrir no celular (veja

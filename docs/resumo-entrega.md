@@ -82,11 +82,15 @@ código:
     corretamente, sem travar a aplicação.
 - **Layout mobile**: testado em viewport de celular (~390–500px de largura), sem elementos
   cortados ou sobrepostos de forma quebrada.
-- Durante a implementação, alguns problemas técnicos foram encontrados e corrigidos: o import da
-  MindAR quebrava o pré-empacotamento de dependências do Vite em desenvolvimento (resolvido com
-  `optimizeDeps.exclude`/`include` em `vite.config.ts`); o pacote `canvas` (nativo) falhou ao
-  compilar neste Windows — contornado usando a `Compiler` da MindAR que roda no navegador em vez
-  do compilador Node, então o jogo não depende do binário nativo.
+- Durante a implementação, alguns problemas técnicos foram encontrados e corrigidos:
+  - O import da MindAR quebrava o pré-empacotamento de dependências do Vite em desenvolvimento
+    (resolvido com `optimizeDeps.exclude`/`include` em `vite.config.ts`).
+  - O pacote `canvas` (nativo, dependência transitiva da MindAR) falhou ao compilar tanto neste
+    Windows quanto no ambiente de build do Vercel (Linux) — nenhum dos dois tinha o toolchain de
+    build nativo necessário. Como o jogo usa só a `Compiler`/`Controller` da MindAR que rodam no
+    navegador (nunca importam `canvas`), resolvemos definitivamente com um `overrides` no
+    `package.json` substituindo `canvas` por um pacote vazio — `npm install` passa a funcionar em
+    qualquer ambiente sem precisar de compilador C++.
 
 ## O que depende de um celular real (não verificável neste ambiente)
 
