@@ -1,4 +1,4 @@
-import { PONTOS } from './config/content';
+import { PONTOS, TEXTOS } from './config/content';
 import {
   coletarPonto,
   continuarPartida,
@@ -11,14 +11,8 @@ import {
   type Modo
 } from './state/gameState';
 import { getSceneApp } from './scene/sceneApp';
-import { exibirObjetoAr, exibirObjetoDemo, exibirBauFechado, limparExibicao, type BauExibido } from './scene/displayController';
-import {
-  encerrarSessaoAR,
-  getUltimaPose,
-  iniciarSessaoAR,
-  ocultarReticulo,
-  superficieDetectada
-} from './scene/arController';
+import { exibirObjetoDemo, exibirBauFechado, limparExibicao, type BauExibido } from './scene/displayController';
+import { encerrarSessaoAR, iniciarSessaoAR } from './scene/arController';
 import { renderHomeScreen } from './ui/homeScreen';
 import { renderHuntScreen } from './ui/huntScreen';
 import { montarArOverlay, type ArOverlayHandle } from './ui/arOverlay';
@@ -149,22 +143,18 @@ function onColetarObjetoAtual() {
 }
 
 function iniciarTelaAr() {
-  arOverlayHandle = montarArOverlay(uiRoot, {
-    onTocarParaPosicionar: () => {
-      if (!superficieDetectada()) return;
-      const pose = getUltimaPose();
-      const ponto = getPontoAtual();
-      if (!pose || !ponto) return;
-      exibirObjetoAr(ponto.objetoTipo, ponto.cor, pose.posicao, pose.rotacao);
-      ocultarReticulo();
-      arOverlayHandle?.mostrarBotaoColetar(true);
-    },
+  const ponto = getPontoAtual();
+  if (!ponto) {
+    telaAtual = 'hunt';
+    render();
+    return;
+  }
+  const numeroPonto = getIndiceAtual() + 1;
+
+  arOverlayHandle = montarArOverlay(uiRoot, numeroPonto, {
     onColetar: () => {
-      const ponto = getPontoAtual();
-      if (ponto) {
-        const sucesso = coletarPonto(ponto.id);
-        if (sucesso) mostrarToast(`+100 pts — ${ponto.objetoNome} coletado!`);
-      }
+      const sucesso = coletarPonto(ponto.id);
+      if (sucesso) mostrarToast(`+100 pts — ${ponto.objetoNome} coletado!`);
       encerrarSessaoAR();
       descobertoNoPontoAtual = false;
       telaAtual = getState().concluido ? 'final' : 'hunt';
@@ -184,19 +174,20 @@ function iniciarTelaAr() {
     }
   });
 
-  iniciarSessaoAR(arOverlayHandle.elementoDomOverlay, {
-    onSurfaceEncontrada: () => {
-      arOverlayHandle?.mostrarInstrucao('Toque na tela para posicionar o tesouro aqui.');
+  iniciarSessaoAR(ponto, {
+    onMarcadorEncontrado: () => {
+      arOverlayHandle?.mostrarInstrucao(TEXTOS.arInstrucaoEncontrado);
+      arOverlayHandle?.mostrarBotaoColetar(true);
+    },
+    onMarcadorPerdido: () => {
+      arOverlayHandle?.mostrarInstrucao(TEXTOS.arInstrucaoBuscando(numeroPonto));
     },
     onErro: (_tipo, mensagem) => {
       arOverlayHandle?.mostrarErro(mensagem);
-    },
-    onSessaoEncerrada: () => {
-      if (telaAtual === 'ar') {
-        telaAtual = 'hunt';
-        render();
-      }
     }
+  }).catch((err) => {
+    console.error(err);
+    arOverlayHandle?.mostrarErro(TEXTOS.arErroFalhaGenerica);
   });
 }
 

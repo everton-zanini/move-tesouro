@@ -13,5 +13,18 @@ export default defineConfig({
   server: {
     https: !semHttps,
     host: true
+  },
+  // O import `?worker&inline` da MindAR só é entendido pelo pipeline de dev
+  // do Vite, não pelo esbuild usado no pré-bundling de dependências — excluir
+  // evita o erro "No matching export ... for import default".
+  optimizeDeps: {
+    exclude: ['mind-ar'],
+    // Dependências transitivas CJS usadas dentro da árvore da MindAR (que fica
+    // fora do pré-bundling por causa do exclude acima) precisam ser incluídas
+    // manualmente para ganhar a conversão CJS -> ESM do esbuild.
+    include: ['@tensorflow/tfjs', 'long', 'seedrandom']
+  },
+  worker: {
+    format: 'es'
   }
 });

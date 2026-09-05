@@ -1,5 +1,8 @@
 # Resumo da entrega — Missão Tesouro (MVP)
 
+> Este resumo cobre a versão atual do projeto, já com a migração de tecnologia de AR (ver
+> "Histórico da migração de AR" abaixo).
+
 ## O que foi implementado
 
 - **Tela inicial**: nome do jogo, slogan, campo de nome da equipe, botões "Começar aventura"
@@ -16,25 +19,47 @@
 - **Modo demonstração**: mesma lógica de jogo (mesmo `state/gameState.ts`), sem câmera, com um
   botão "Simular descoberta" no lugar do "Procurar tesouro", e uma indicação fixa
   "MODO DEMONSTRAÇÃO" na tela.
-- **AR real via WebXR (Hit Testing)**: verificação de suporte antes de iniciar, busca de
-  superfície com retículo visual, ancoragem do objeto na pose detectada ao tocar na tela, DOM
-  Overlay para a UI (instrução, botão coletar, botão sair), encerramento explícito da sessão
-  (`app.xr.end()`) ao sair/coletar/errar.
-- **Tratamento de erro de AR**: sem suporte, permissão de câmera negada, ou falha ao iniciar —
-  todos caem em uma tela de erro com mensagem específica e atalho para o Modo demonstração.
+- **AR real via rastreamento de marcador de imagem (MindAR)**: verificação de suporte
+  (`getUserMedia` + contexto seguro) antes de iniciar, câmera ao vivo atrás da cena 3D, cartão
+  impresso reconhecido automaticamente e objeto ancorado nele em tempo real (sem toque/gesto do
+  jogador), encerramento explícito da sessão (câmera parada, rastreamento finalizado) ao
+  sair/coletar/errar.
+- **Marcadores impressos**: 3 cartões ilustrados temáticos (`public/markers-print/*.png`) e o
+  arquivo compilado (`public/markers/targets.mind`) já incluídos no repositório, prontos pra
+  imprimir e usar. Ferramenta de desenvolvimento (`tools/compile-markers.html`) pra regenerar caso
+  a arte mude.
+- **Tratamento de erro de AR**: sem suporte, permissão de câmera negada, câmera não encontrada, ou
+  falha ao carregar os marcadores — todos caem em uma tela de erro com mensagem específica e
+  atalho para o Modo demonstração.
 - **Persistência**: `localStorage` guarda nome da equipe, modo, itens coletados, pontuação e
   status de conclusão. Reiniciar apaga tudo.
-- **Documentação**: README (instalação, build, teste no celular via HTTPS/mkcert, decisão de AR),
-  roteiro de apresentação de 3 minutos, este resumo.
+- **Code-splitting da AR**: a parte pesada (MindAR + TensorFlow.js) só é baixada quando o jogador
+  entra na tela de AR — carregada via `import()` dinâmico, em um chunk separado do bundle
+  principal.
+- **Documentação**: README (instalação, build, teste no celular via HTTPS/mkcert, deploy no
+  Vercel, decisão de AR, marcadores impressos), roteiro de apresentação de 3 minutos, este resumo.
+
+## Histórico da migração de AR
+
+A primeira versão deste MVP usava **WebXR + Hit Testing**. Em teste real num Android + Chrome, o
+app corretamente relatou "AR não disponível" — o aparelho não tinha ARCore instalado nem
+disponível pra instalar (fora da lista de dispositivos certificados da Google); o mesmo aconteceu
+até na página oficial de exemplo do WebXR, confirmando que era limitação do aparelho, não bug do
+app. Como isso deixaria de fora uma fatia relevante dos celulares dos jovens do evento, migramos
+para **rastreamento de marcador de imagem via câmera comum**, usando a biblioteca MindAR — não
+depende de ARCore/ARKit, então funciona em Android e iPhone. Detalhes técnicos completos da
+decisão e da ponte MindAR → PlayCanvas estão no README.
 
 ## O que foi verificado nesta sessão (ambiente de desenvolvimento, sem celular físico)
 
 Testado ponta a ponta em um navegador Chrome real (via automação de DevTools), não apenas lido no
 código:
 
-- `npm run build` completa sem erros (checagem de tipos + build do Vite).
+- `npm run build` completa sem erros (checagem de tipos + build do Vite); confirmado o
+  code-splitting do chunk de AR (separado do bundle principal).
 - Fluxo completo do **Modo demonstração**: início → 3 pontos coletados em sequência → tela final →
-  abertura do baú → pontuação final **300/300** → mensagem final e nome da equipe corretos.
+  abertura do baú → pontuação final **300/300** → mensagem final e nome da equipe corretos —
+  reconfirmado depois da migração de AR (nada mudou nesse fluxo, como esperado).
 - **Sequência de pistas**: cada ponto só libera a pista seguinte após a coleta; a ordem
   Recepção → Área de convivência → Palco foi respeitada.
 - **Coleta única**: o botão "Coletar" só existe depois da descoberta e desaparece assim que o
@@ -44,41 +69,48 @@ código:
   o botão "Continuar partida", e continuar restaura exatamente o ponto/pontuação salvos.
 - **Reiniciar**: apaga o registro do `localStorage` e volta para a tela inicial sem opção de
   continuar.
-- **Falha de AR com fallback**: neste navegador de desktop (sem WebXR "immersive-ar" disponível),
-  o fluxo de AR mostra a tela de erro com a mensagem "Realidade Aumentada não está disponível
-  neste dispositivo" e o botão "Modo demonstração" simula a descoberta do ponto atual
-  corretamente, sem travar a aplicação.
+- **Compilação dos marcadores**: os 3 cartões foram desenhados e compilados com sucesso pela
+  ferramenta de dev (`targets.mind` gerado, ~1,38 MB) — inspecionados visualmente, com boa
+  quantidade de detalhe/contraste para rastreamento.
+- **Caminhos de erro da AR** (via mocks de `navigator.mediaDevices`, já que este ambiente não tem
+  como conceder permissão de câmera de forma automatizada):
+  - Sem `getUserMedia` no navegador → mensagem "Este navegador não tem acesso à câmera" +
+    fallback funcionando.
+  - Permissão de câmera negada (`NotAllowedError` simulado) → mensagem "A câmera foi bloqueada..."
+    + fallback funcionando.
+  - Em ambos os casos, o botão "Modo demonstração" no erro simula a descoberta do ponto atual
+    corretamente, sem travar a aplicação.
 - **Layout mobile**: testado em viewport de celular (~390–500px de largura), sem elementos
   cortados ou sobrepostos de forma quebrada.
-- Durante os testes, dois problemas visuais foram encontrados e corrigidos: (1) o preview 3D não
-  aparecia atrás da interface (trocamos a estratégia de "janela recortada" por tela transparente
-  com cards translúcidos por cima, mais simples e robusta) e (2) um botão que deveria ficar
-  escondido durante o erro de AR ainda aparecia por baixo (regra CSS `[hidden]` estava sendo
-  sobrescrita por `.btn { display: flex }` — corrigido com `[hidden] { display: none !important }`).
+- Durante a implementação, alguns problemas técnicos foram encontrados e corrigidos: o import da
+  MindAR quebrava o pré-empacotamento de dependências do Vite em desenvolvimento (resolvido com
+  `optimizeDeps.exclude`/`include` em `vite.config.ts`); o pacote `canvas` (nativo) falhou ao
+  compilar neste Windows — contornado usando a `Compiler` da MindAR que roda no navegador em vez
+  do compilador Node, então o jogo não depende do binário nativo.
 
 ## O que depende de um celular real (não verificável neste ambiente)
 
-- **Sessão de AR de ponta a ponta em hardware real** (Android + Chrome/ARCore): abertura de
-  câmera, permissão do sistema operacional, qualidade da detecção de superfície (hit-test) em um
-  ambiente físico, estabilidade da ancoragem do objeto ao mover o celular.
-- **Comportamento em iOS/Safari**: o código já trata esse caso como "AR indisponível" e direciona
-  para o Modo demonstração, mas o teste real do aviso e da experiência em um iPhone físico não foi
-  feito aqui.
+- **Reconhecimento real do marcador impresso por uma câmera física em movimento**: ângulo,
+  distância, iluminação e qualidade de impressão reais só podem ser validados com um celular e os
+  cartões impressos de verdade.
+- **Concessão de permissão de câmera por um usuário real**: este ambiente tem uma câmera real
+  disponível, mas a concessão da permissão do navegador é uma ação humana (popup nativo do
+  sistema) que a automação não consegue confirmar sozinha — os caminhos de erro foram validados
+  por mock (ver acima), mas o caminho de **sucesso** (câmera concedida, vídeo ao vivo, marcador
+  reconhecido) depende de um teste manual.
+- **Comportamento em iPhone/Safari real**: o código não depende de nenhuma API exclusiva de
+  Android, mas o teste real da experiência (permissão de câmera, orientação de vídeo, etc.) num
+  iPhone físico não foi feito aqui.
 - **Teste do fluxo de HTTPS local (mkcert) em rede Wi-Fi real**, incluindo o aviso de certificado
   não confiável no navegador do celular e a aceitação manual desse aviso.
-- **Permissão de câmera negada pelo usuário**: o tratamento de erro está implementado
-  (`NotAllowedError` → mensagem específica), mas não pôde ser exercitado de fato sem um navegador
-  com permissão de câmera real disponível neste ambiente.
 
 ## Limitações conhecidas do MVP (por decisão de escopo, não bugs)
 
-- Identificação do ponto físico é manual (o jogador confirma tocando no botão) — sem GPS, sem
-  marcador, sem validação automática do ambiente. Isso está explicado na própria tela do jogo.
-- Sem marcadores impressos: a abordagem de AR escolhida foi Hit Testing (posicionamento no
-  ambiente), não rastreamento de imagem — então não há arquivo de marcador para imprimir (ver
-  justificativa no README).
-- Bundle de produção único (~2 MB antes de gzip, ~525 KB com gzip) — aceitável para um protótipo
-  local, mas o Vite avisa que poderia ser dividido em chunks menores; não otimizado aqui de
-  propósito, para manter o setup simples.
+- Identificação do ponto físico depende do reconhecimento do marcador impresso pela câmera — sem
+  GPS, sem validação automática além disso.
+- Bundle de produção dividido em dois chunks: ~2 MB (525 KB gzip) pro jogo base e ~1,8 MB
+  (310 KB gzip) pra AR, carregado só sob demanda — aceitável para um protótipo, mas o TensorFlow.js
+  (dependência da MindAR) é inerentemente pesado; não há como reduzir isso mantendo a mesma
+  biblioteca de rastreamento.
 - Sem autenticação, multiplayer, ranking online, painel administrativo, banco de dados, GPS, chat
   ou integrações pagas — nenhum desses itens existe, nem como simulação.

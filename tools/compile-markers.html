@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Compilar marcadores — Missão Tesouro (dev)</title>
+    <style>
+      body {
+        background: #151233;
+        color: #f6f3ff;
+        font-family: system-ui, sans-serif;
+        padding: 24px;
+      }
+      #status {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f2c14e;
+        margin-bottom: 20px;
+      }
+      #galeria {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+      .cartao img {
+        width: 220px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .cartao p {
+        text-align: center;
+        color: #c9c2ea;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Ferramenta de dev: compilar marcadores</h1>
+    <div id="status">Iniciando...</div>
+    <div id="galeria"></div>
+    <script type="module" src="/tools/compile-markers.ts"></script>
+  </body>
+</html>

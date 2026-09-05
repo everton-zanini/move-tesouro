@@ -1,206 +1,207 @@
-// Integração com WebXR (Realidade Aumentada) do PlayCanvas.
+// Integração com MindAR (rastreamento de marcador de imagem) via câmera comum.
 //
-// DECISÃO DE AR: usamos WebXR com "hit-test" (posicionamento do objeto sobre uma
-// superfície real detectada pela câmera), e não rastreamento de marcador/imagem.
-// A documentação do PlayCanvas classifica o Image Tracking como um módulo WebXR
-// menos consistente entre navegadores (suporte incubatório), enquanto o Hit
-// Testing é o caminho estável e documentado para ancorar conteúdo ao ambiente
-// real. Como não há marcador impresso, a identificação de "em qual ponto físico
-// eu estou" é feita pelo próprio jogador (ele toca em "Procurar tesouro" já
-// estando no local) — não há GPS nem validação automática do ambiente.
+// DECISÃO DE AR (atualizada): a versão anterior usava WebXR + hit-test, mas em
+// teste real num Android + Chrome o app corretamente reportou "AR não
+// disponível" — o aparelho não tinha ARCore instalado nem disponível pra
+// instalar (fora da lista de dispositivos certificados da Google); o mesmo
+// aconteceu até na página oficial de exemplo do WebXR, confirmando que era
+// limitação do aparelho, não bug do app. Como depender de ARCore/ARKit deixa
+// de fora uma fatia relevante dos celulares dos jovens do evento, trocamos
+// para **rastreamento de marcador de imagem via câmera comum (MindAR)** — não
+// depende de nenhum serviço nativo de AR, então funciona tanto em Android
+// quanto em iPhone, em qualquer navegador com acesso à câmera (getUserMedia).
 //
-// Dispositivo/navegador alvo testado como referência: Android + Google Chrome
-// atualizado (mecanismo ARCore). iOS Safari não implementa `immersive-ar` hoje;
-// nesses aparelhos a experiência recomendada é o Modo demonstração.
+// O motor 3D continua sendo só o PlayCanvas: a MindAR aqui fornece somente o
+// vídeo da câmera e a pose (matriz 4x4) do marcador a cada frame processado —
+// nós aplicamos essa pose diretamente numa entidade do PlayCanvas (ver
+// scene/displayController.ts). Ver docs/resumo-entrega.md para os detalhes
+// técnicos da ponte MindAR -> PlayCanvas.
 
-import { Color, Entity, StandardMaterial, XRSPACE_LOCALFLOOR, XRSPACE_VIEWER, XRTYPE_AR } from 'playcanvas';
-import type { XrHitTestSource } from 'playcanvas';
-import { getSceneApp } from './sceneApp';
-
-/** app.xr existe assim que a Application é criada (só fica indisponível em builds sem o módulo XR). */
-function getXr() {
-  const xr = getSceneApp().app.xr;
-  if (!xr) throw new Error('Módulo XR indisponível nesta build do PlayCanvas.');
-  return xr;
-}
+import { Mat4, Quat } from 'playcanvas';
+// Import dinâmico (não estático) de propósito: a MindAR arrasta o TensorFlow.js
+// (pesado) junto — carregar isso só quando o jogador realmente entra na AR
+// mantém a Home/Modo demonstração leves e ainda ganha code-splitting automático
+// do Vite/Rollup no build de produção.
+import type { Controller as ControllerType, MindArUpdateEvent } from 'mind-ar/src/image-target/controller.js';
+import { TEXTOS, type TreasurePoint } from '../config/content';
+import { ativarCameraAR, restaurarCameraPadrao } from './sceneApp';
+import { exibirObjetoAr, limparExibicao, type ObjetoArAncorado } from './displayController';
 
 export type ArErrorKind = 'sem-suporte' | 'permissao-negada' | 'falha-ao-iniciar';
 
 export interface ArCallbacks {
-  onSurfaceEncontrada: () => void;
+  onMarcadorEncontrado: () => void;
+  onMarcadorPerdido: () => void;
   onErro: (tipo: ArErrorKind, mensagem: string) => void;
-  onSessaoEncerrada: () => void;
 }
 
-interface UltimaPose {
-  posicao: { x: number; y: number; z: number };
-  rotacao: { x: number; y: number; z: number; w: number };
-}
+const CAMINHO_TARGETS = '/markers/targets.mind';
 
-let reticulo: Entity | null = null;
-let hitTestSource: XrHitTestSource | null = null;
-let superficieEncontrada = false;
-let ultimaPose: UltimaPose | null = null;
+let video: HTMLVideoElement | null = null;
+let stream: MediaStream | null = null;
+let controller: ControllerType | null = null;
+let objetoAncorado: ObjetoArAncorado | null = null;
+let marcadorDetectado = false;
 let callbacksAtuais: ArCallbacks | null = null;
-let corDeFundoOriginal: Color | null = null;
-let eventosGlobaisRegistrados = false;
-
-function mapearMensagemErro(err: unknown): string {
-  const nome = (err as { name?: string } | undefined)?.name ?? '';
-  if (nome === 'NotAllowedError') {
-    return 'A câmera foi bloqueada. Permita o acesso à câmera nas configurações do navegador e tente novamente.';
-  }
-  return 'Não foi possível iniciar a experiência de AR agora.';
-}
-
-function registrarEventosGlobais() {
-  if (eventosGlobaisRegistrados) return;
-  eventosGlobaisRegistrados = true;
-  const { camera } = getSceneApp();
-  const xr = getXr();
-
-  xr.on('start', () => {
-    corDeFundoOriginal = camera.camera!.clearColor.clone();
-    // AR exige fundo transparente para a câmera do dispositivo aparecer atrás dos objetos.
-    camera.camera!.clearColor = new Color(0, 0, 0, 0);
-    iniciarHitTest();
-  });
-
-  xr.on('end', () => {
-    if (corDeFundoOriginal) camera.camera!.clearColor = corDeFundoOriginal;
-    limparReticulo();
-    superficieEncontrada = false;
-    ultimaPose = null;
-    hitTestSource?.remove();
-    hitTestSource = null;
-    callbacksAtuais?.onSessaoEncerrada();
-  });
-
-  xr.on('error', (err: Error) => {
-    callbacksAtuais?.onErro('falha-ao-iniciar', mapearMensagemErro(err));
-  });
-}
+let sessaoAtual = 0;
 
 export function verificarSuporteAR(): { suportado: boolean; motivo?: string } {
-  if (typeof navigator === 'undefined' || !('xr' in navigator)) {
-    return { suportado: false, motivo: 'Este navegador não tem a API WebXR.' };
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return { suportado: false, motivo: TEXTOS.arErroSemSuporte };
   }
-  const xr = getSceneApp().app.xr;
-  if (!xr || !xr.supported) {
-    return { suportado: false, motivo: 'WebXR não é suportado neste navegador.' };
-  }
-  if (!xr.isAvailable(XRTYPE_AR)) {
-    return { suportado: false, motivo: 'Realidade Aumentada não está disponível neste dispositivo.' };
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    return { suportado: false, motivo: 'Esta página precisa ser aberta em HTTPS para acessar a câmera.' };
   }
   return { suportado: true };
 }
 
-function criarReticuloVisual(): Entity {
-  const material = new StandardMaterial();
-  material.diffuse = new Color(0.95, 0.78, 0.28);
-  material.emissive = new Color(0.95, 0.78, 0.28);
-  material.emissiveIntensity = 0.8;
-  material.update();
-
-  const entity = new Entity('reticulo');
-  entity.addComponent('render', { type: 'cylinder', material });
-  entity.setLocalScale(0.3, 0.01, 0.3);
-  entity.enabled = false;
-  return entity;
-}
-
-function limparReticulo() {
-  reticulo?.destroy();
-  reticulo = null;
-}
-
-function iniciarHitTest() {
-  const { displayRoot } = getSceneApp();
-  const xr = getXr();
-
-  if (!xr.hitTest || !xr.hitTest.supported) {
-    callbacksAtuais?.onErro('falha-ao-iniciar', 'Detecção de superfícies (hit-test) não é suportada neste dispositivo.');
-    return;
+function mapearErroCamera(err: unknown): { tipo: ArErrorKind; mensagem: string } {
+  const nome = (err as { name?: string } | undefined)?.name ?? '';
+  if (nome === 'NotAllowedError' || nome === 'SecurityError') {
+    return { tipo: 'permissao-negada', mensagem: TEXTOS.arErroCameraNegada };
   }
-
-  limparReticulo();
-  reticulo = criarReticuloVisual();
-  displayRoot.addChild(reticulo);
-
-  xr.hitTest.start({
-    spaceType: XRSPACE_VIEWER,
-    callback: (err: Error | null, source: XrHitTestSource | null) => {
-      if (err || !source) {
-        callbacksAtuais?.onErro('falha-ao-iniciar', 'Não foi possível detectar superfícies no ambiente.');
-        return;
-      }
-      hitTestSource = source;
-      source.on(
-        'result',
-        (position: { x: number; y: number; z: number }, rotation: { x: number; y: number; z: number; w: number }) => {
-          ultimaPose = { posicao: { ...position }, rotacao: { ...rotation } };
-          if (reticulo) {
-            reticulo.enabled = true;
-            reticulo.setPosition(position.x, position.y, position.z);
-            reticulo.setRotation(rotation.x, rotation.y, rotation.z, rotation.w);
-          }
-          if (!superficieEncontrada) {
-            superficieEncontrada = true;
-            callbacksAtuais?.onSurfaceEncontrada();
-          }
-        }
-      );
-    }
-  });
+  if (nome === 'NotFoundError' || nome === 'OverconstrainedError') {
+    return { tipo: 'falha-ao-iniciar', mensagem: TEXTOS.arErroCameraNaoEncontrada };
+  }
+  return { tipo: 'falha-ao-iniciar', mensagem: TEXTOS.arErroFalhaGenerica };
 }
 
-export function iniciarSessaoAR(overlayDom: HTMLElement, callbacks: ArCallbacks) {
-  registrarEventosGlobais();
+function criarElementoVideo(): HTMLVideoElement {
+  const el = document.createElement('video');
+  el.id = 'ar-camera-video';
+  el.autoplay = true;
+  el.muted = true;
+  el.playsInline = true;
+  el.setAttribute('playsinline', 'true');
+  el.setAttribute('webkit-playsinline', 'true');
+  Object.assign(el.style, {
+    position: 'fixed',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    zIndex: '-1'
+  });
+  document.body.appendChild(el);
+  return el;
+}
+
+function aplicarPose(worldMatrix: number[] | Float32Array) {
+  if (!objetoAncorado) return;
+  const m = new Mat4();
+  m.data.set(worldMatrix);
+  const posicao = m.getTranslation();
+  const rotacao = new Quat().setFromMat4(m);
+  objetoAncorado.mostrar();
+  objetoAncorado.atualizarPose(posicao, rotacao);
+}
+
+export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbacks): Promise<void> {
+  const minhaSessao = ++sessaoAtual;
   callbacksAtuais = callbacks;
-  superficieEncontrada = false;
-  ultimaPose = null;
+  marcadorDetectado = false;
+  objetoAncorado = null;
 
   const suporte = verificarSuporteAR();
   if (!suporte.suportado) {
-    callbacks.onErro('sem-suporte', suporte.motivo ?? 'AR indisponível neste dispositivo.');
+    callbacks.onErro('sem-suporte', suporte.motivo ?? TEXTOS.arErroSemSuporte);
     return;
   }
 
-  const { camera } = getSceneApp();
-  const xr = getXr();
+  let novoStream: MediaStream;
+  try {
+    novoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+  } catch (err) {
+    const { tipo, mensagem } = mapearErroCamera(err);
+    callbacks.onErro(tipo, mensagem);
+    return;
+  }
+  if (sessaoAtual !== minhaSessao) {
+    novoStream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  stream = novoStream;
+
+  video = criarElementoVideo();
+  video.srcObject = stream;
+
+  await new Promise<void>((resolve) => {
+    video!.onloadeddata = () => resolve();
+  });
+  if (sessaoAtual !== minhaSessao) return;
+  await video.play();
+  if (sessaoAtual !== minhaSessao) return;
 
   try {
-    // O DOM Overlay precisa ser configurado antes de start(); veja XrDomOverlay.
-    if (xr.domOverlay?.supported) {
-      xr.domOverlay.root = overlayDom;
-    }
-    xr.start(camera.camera!, XRTYPE_AR, XRSPACE_LOCALFLOOR, {
-      callback: (err: Error | null) => {
-        if (err) {
-          callbacks.onErro('falha-ao-iniciar', mapearMensagemErro(err));
+    const { Controller } = await import('mind-ar/src/image-target/controller.js');
+    if (sessaoAtual !== minhaSessao) return;
+
+    controller = new Controller({
+      inputWidth: video.videoWidth,
+      inputHeight: video.videoHeight,
+      maxTrack: 1,
+      onUpdate: (data: MindArUpdateEvent) => {
+        if (sessaoAtual !== minhaSessao) return;
+        if (data.type !== 'updateMatrix' || data.targetIndex !== ponto.markerIndex) return;
+
+        if (!data.worldMatrix) {
+          if (marcadorDetectado) {
+            objetoAncorado?.ocultar();
+            callbacksAtuais?.onMarcadorPerdido();
+          }
+          return;
+        }
+        aplicarPose(data.worldMatrix);
+        if (!marcadorDetectado) {
+          marcadorDetectado = true;
+          callbacksAtuais?.onMarcadorEncontrado();
         }
       }
     });
+    controller.interestedTargetIndex = ponto.markerIndex;
+
+    await controller.addImageTargets(CAMINHO_TARGETS);
+    if (sessaoAtual !== minhaSessao) return;
+
+    ativarCameraAR(controller.getProjectionMatrix());
+    objetoAncorado = exibirObjetoAr(ponto.objetoTipo, ponto.cor);
+    objetoAncorado.ocultar();
+
+    controller.dummyRun(video);
+    controller.processVideo(video);
   } catch (err) {
-    callbacks.onErro('falha-ao-iniciar', mapearMensagemErro(err));
+    console.error(err);
+    callbacks.onErro('falha-ao-iniciar', TEXTOS.arErroFalhaGenerica);
   }
 }
 
-export function superficieDetectada(): boolean {
-  return superficieEncontrada;
-}
-
-export function getUltimaPose(): UltimaPose | null {
-  return ultimaPose;
-}
-
-export function ocultarReticulo() {
-  if (reticulo) reticulo.enabled = false;
+export function marcadorJaDetectado(): boolean {
+  return marcadorDetectado;
 }
 
 export function encerrarSessaoAR() {
-  const xr = getSceneApp().app.xr;
-  if (xr?.active) {
-    xr.end();
-  }
+  sessaoAtual++;
+
+  controller?.dispose();
+  controller = null;
+
+  stream?.getTracks().forEach((t) => t.stop());
+  stream = null;
+
+  video?.remove();
+  video = null;
+
+  marcadorDetectado = false;
+  objetoAncorado = null;
+  callbacksAtuais = null;
+
+  restaurarCameraPadrao();
+  limparExibicao();
 }

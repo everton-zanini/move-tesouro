@@ -46,19 +46,24 @@ animação da tampa abrindo, a mensagem final e a pontuação (300).
 
 ## 2:15 – 2:45 · A parte de Realidade Aumentada
 
-Aqui, dependendo do que tiver disponível na sala:
+Leve pelo menos um dos cartões impressos (`public/markers-print/`) — o de "Recepção" (cristal
+azul) é suficiente para a demonstração.
 
-- **Se tiver um Android com Chrome à mão:** clique em **Começar aventura** (modo AR) e mostre a
-  câmera abrindo, a busca por uma superfície e o objeto sendo ancorado ao mundo real ao tocar na
-  tela.
+- **Se tiver o cartão e um celular à mão:** clique em **Começar aventura** (modo AR), aponte a
+  câmera para o cartão impresso e mostre o cristal aparecendo ancorado nele, seguindo o cartão ao
+  mover o celular.
 - **Se não tiver:** explique verbalmente, mostrando o texto do README na tela:
 
-> "A versão AR usa uma tecnologia chamada WebXR com detecção de superfície — o celular reconhece
-> o chão ou uma mesa e o objeto fica 'grudado' ali, como em um jogo de realidade aumentada
-> normal. Testamos com Android e Chrome; no iPhone essa tecnologia ainda não existe, então nesses
-> aparelhos a gente já direciona a turma pro Modo demonstração automaticamente."
+> "A versão AR reconhece um cartão impresso pela câmera comum do celular — sem precisar de
+> nenhuma tecnologia especial instalada, tipo ARCore. É por isso que funciona tanto em Android
+> quanto em iPhone: usamos só a câmera, igual a uma videochamada, e um reconhecimento de imagem
+> que roda no navegador."
 
-Se a AR falhar na hora (esperado em alguns aparelhos/redes), aproveite: mostre a tela de erro
+Se quiser, conte o porquê da escolha: a primeira versão usava uma tecnologia de AR mais "nativa"
+(WebXR), mas ao testar em um celular real descobrimos que nem todo aparelho tem suporte a ela —
+então trocamos por essa abordagem de marcador, que funciona em praticamente qualquer celular.
+
+Se a AR falhar na hora (permissão de câmera negada, por exemplo), aproveite: mostre a tela de erro
 amigável e o botão que leva direto pro Modo demonstração — reforçando que o app não trava, ele
 sempre dá um caminho pra continuar.
 
@@ -72,7 +77,8 @@ sempre dá um caminho pra continuar.
 
 - Teste o fluxo completo (início a fim) uma vez antes da reunião, no mesmo aparelho/navegador que
   vai usar ao vivo.
-- Se for demonstrar a AR de verdade, chegue 5 minutos antes para validar a rede Wi-Fi e o aviso de
-  certificado no celular (ver README).
+- Se for demonstrar a AR de verdade, imprima os 3 cartões antes (`public/markers-print/`, ver
+  instruções de impressão no README) e leve-os pra reunião; se estiver usando o link do Vercel,
+  não tem aviso de certificado pra se preocupar.
 - Se algo travar, feche a aba e abra de novo — o progresso da equipe fica salvo (`localStorage`)
   e você retoma de onde parou com "Continuar partida".

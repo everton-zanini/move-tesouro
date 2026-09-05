@@ -9,6 +9,7 @@
     "preview": "vite preview --host"
   },
   "dependencies": {
+    "mind-ar": "^1.2.5",
     "playcanvas": "^2.22.0"
   },
   "devDependencies": {

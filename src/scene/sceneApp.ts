@@ -4,6 +4,11 @@
 // fundo transparente e cards translúcidos por cima (ver styles.css).
 
 import { Application, Color, Entity, FILLMODE_NONE, RESOLUTION_AUTO } from 'playcanvas';
+import type { Mat4 } from 'playcanvas';
+
+const COR_FUNDO_PADRAO = new Color(0x15 / 255, 0x12 / 255, 0x33 / 255);
+const CAMERA_POS_PADRAO: [number, number, number] = [0, 0.55, 2.6];
+const CAMERA_LOOKAT_PADRAO: [number, number, number] = [0, 0.15, 0];
 
 export interface SceneApp {
   app: Application;
@@ -25,11 +30,11 @@ export function getSceneApp(): SceneApp {
 
   const camera = new Entity('camera');
   camera.addComponent('camera', {
-    clearColor: new Color(0x15 / 255, 0x12 / 255, 0x33 / 255),
+    clearColor: COR_FUNDO_PADRAO,
     fov: 45
   });
-  camera.setPosition(0, 0.55, 2.6);
-  camera.lookAt(0, 0.15, 0);
+  camera.setPosition(...CAMERA_POS_PADRAO);
+  camera.lookAt(...CAMERA_LOOKAT_PADRAO);
   app.root.addChild(camera);
 
   const luzPrincipal = new Entity('luz-principal');
@@ -72,4 +77,29 @@ export function getSceneApp(): SceneApp {
 export function limparDisplayRoot() {
   const { displayRoot } = getSceneApp();
   displayRoot.children.slice().forEach((child) => child.destroy());
+}
+
+/**
+ * Prepara a câmera única para a sessão de AR: posição na origem (a pose do
+ * marcador já vem em espaço de câmera), fundo transparente (pro vídeo da
+ * câmera aparecer atrás) e a matriz de projeção exata calculada pela MindAR
+ * (garante que o objeto 3D se alinhe com o que a câmera realmente vê).
+ */
+export function ativarCameraAR(matrizProjecao: Float32Array | number[]) {
+  const { camera } = getSceneApp();
+  camera.setPosition(0, 0, 0);
+  camera.setEulerAngles(0, 0, 0);
+  camera.camera!.clearColor = new Color(0, 0, 0, 0);
+  camera.camera!.calculateProjection = (transformMatrix: Mat4) => {
+    transformMatrix.data.set(matrizProjecao);
+  };
+}
+
+/** Desfaz `ativarCameraAR`, devolvendo a câmera ao enquadramento padrão. */
+export function restaurarCameraPadrao() {
+  const { camera } = getSceneApp();
+  (camera.camera as unknown as { calculateProjection: unknown }).calculateProjection = null;
+  camera.camera!.clearColor = COR_FUNDO_PADRAO;
+  camera.setPosition(...CAMERA_POS_PADRAO);
+  camera.lookAt(...CAMERA_LOOKAT_PADRAO);
 }

@@ -11,6 +11,12 @@ export interface TreasurePoint {
   objetoTipo: ObjectKind;
   /** Cor principal do objeto 3D em RGB normalizado (0..1) */
   cor: [number, number, number];
+  /**
+   * Índice do marcador impresso deste ponto dentro de public/markers/targets.mind
+   * (a ordem em que a imagem entrou na compilação — ver tools/markerArt.ts).
+   * Precisa bater com a ordem usada em tools/compile-markers.ts.
+   */
+  markerIndex: number;
 }
 
 export const PONTOS: TreasurePoint[] = [
@@ -20,7 +26,8 @@ export const PONTOS: TreasurePoint[] = [
     pista: 'Toda aventura começa com uma boa acolhida.',
     objetoNome: 'Cristal Azul',
     objetoTipo: 'cristal',
-    cor: [0.16, 0.52, 0.95]
+    cor: [0.16, 0.52, 0.95],
+    markerIndex: 0
   },
   {
     id: 'convivencia',
@@ -28,7 +35,8 @@ export const PONTOS: TreasurePoint[] = [
     pista: 'Procure onde a turma se reúne para conversar.',
     objetoNome: 'Estrela Dourada',
     objetoTipo: 'estrela',
-    cor: [0.98, 0.76, 0.18]
+    cor: [0.98, 0.76, 0.18],
+    markerIndex: 1
   },
   {
     id: 'palco',
@@ -36,7 +44,8 @@ export const PONTOS: TreasurePoint[] = [
     pista: 'Onde a voz ganha força e todos prestam atenção.',
     objetoNome: 'Chave Roxa',
     objetoTipo: 'chave',
-    cor: [0.62, 0.32, 0.9]
+    cor: [0.62, 0.32, 0.9],
+    markerIndex: 2
   }
 ];
 
@@ -63,11 +72,12 @@ export const TEXTOS = {
   avisoLocalSimplificado:
     'Neste protótipo, a confirmação do local é feita por você mesmo, tocando no botão — sem GPS ou verificação automática do ambiente.',
 
-  arInstrucaoBuscando: 'Aponte a câmera para o chão ou uma mesa e mova o celular devagar…',
-  arInstrucaoEncontrado: 'Toque na tela para posicionar o tesouro aqui.',
+  arInstrucaoBuscando: (numeroPonto: number) => `Aponte a câmera para o marcador impresso do ponto ${numeroPonto}…`,
+  arInstrucaoEncontrado: 'Marcador encontrado! Mantenha a câmera apontada para ele.',
   arBotaoSair: 'Sair da câmera',
-  arErroSemSuporte: 'Este navegador ou dispositivo não é compatível com Realidade Aumentada (WebXR).',
+  arErroSemSuporte: 'Este navegador não tem acesso à câmera (getUserMedia).',
   arErroCameraNegada: 'A câmera foi bloqueada. Permita o acesso à câmera nas configurações do navegador e tente novamente.',
+  arErroCameraNaoEncontrada: 'Não encontramos uma câmera neste dispositivo.',
   arErroFalhaGenerica: 'Não foi possível iniciar a experiência de AR agora.',
   arSugestaoDemo: 'Você pode continuar a aventura no Modo demonstração enquanto isso.',
 

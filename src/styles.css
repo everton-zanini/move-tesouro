@@ -405,7 +405,6 @@ p {
 
 .ar-overlay__area-toque {
   flex: 1;
-  pointer-events: auto;
 }
 
 .ar-overlay__base {
