@@ -266,6 +266,9 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
           primeiroFrameLogado = true;
           debugLog('primeiro frame de vídeo processado pelo rastreador.');
         }
+        if (data.type === 'updateMatrix' && data.worldMatrix && data.targetIndex !== ponto.markerIndex) {
+          debugLog(`achou o marcador ${data.targetIndex}, mas esperava o ${ponto.markerIndex} (índice não bate!).`);
+        }
         if (data.type !== 'updateMatrix' || data.targetIndex !== ponto.markerIndex) return;
 
         if (!data.worldMatrix) {
@@ -284,7 +287,12 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
         }
       }
     });
-    controller.interestedTargetIndex = ponto.markerIndex;
+    // Removido `controller.interestedTargetIndex = ponto.markerIndex` de propósito:
+    // se o índice do marcador em content.ts não bater com a ordem real dentro
+    // de targets.mind, restringir a busca a um único índice faz o
+    // reconhecimento nunca funcionar, mesmo com o cartão certo bem enquadrado.
+    // Deixando a MindAR procurar por qualquer um dos 3 (o filtro por
+    // `ponto.markerIndex` já acontece em `onUpdate` abaixo).
 
     debugLog('carregando arquivo de marcadores...');
     // `addImageTargets` da MindAR usa `new Promise(async (resolve, reject) => ...)`
