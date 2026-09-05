@@ -37,6 +37,48 @@ export interface ArCallbacks {
 
 const CAMINHO_TARGETS = '/markers/targets.mind';
 
+// Log de diagnóstico temporário, visível na própria tela — não precisa de
+// devtools/cabo USB pra ver em qual etapa a sessão de AR travou num celular
+// real. Remover depois de confirmar a causa do problema em campo.
+let debugEl: HTMLElement | null = null;
+
+function debugLog(mensagem: string) {
+  console.log('[AR debug]', mensagem);
+  if (!debugEl) {
+    debugEl = document.createElement('div');
+    debugEl.id = 'ar-debug-log';
+    Object.assign(debugEl.style, {
+      position: 'fixed',
+      left: '8px',
+      right: '8px',
+      top: '68px',
+      zIndex: '9999',
+      background: 'rgba(0,0,0,0.8)',
+      color: '#5ee65e',
+      fontSize: '11px',
+      fontFamily: 'monospace',
+      lineHeight: '1.4',
+      padding: '8px 10px',
+      borderRadius: '10px',
+      maxHeight: '35vh',
+      overflowY: 'auto',
+      whiteSpace: 'pre-wrap',
+      pointerEvents: 'none'
+    });
+    document.body.appendChild(debugEl);
+  }
+  const linha = document.createElement('div');
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+  linha.textContent = `${hora} ${mensagem}`;
+  debugEl.appendChild(linha);
+  debugEl.scrollTop = debugEl.scrollHeight;
+}
+
+function removerDebugLog() {
+  debugEl?.remove();
+  debugEl = null;
+}
+
 let video: HTMLVideoElement | null = null;
 let stream: MediaStream | null = null;
 let controller: ControllerType | null = null;
@@ -142,13 +184,17 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
   marcadorDetectado = false;
   objetoAncorado = null;
   window.addEventListener('unhandledrejection', onRejeicaoNaoTratada);
+  removerDebugLog();
+  debugLog(`iniciando sessão (ponto ${ponto.markerIndex})...`);
 
   const suporte = verificarSuporteAR();
   if (!suporte.suportado) {
+    debugLog(`sem suporte: ${suporte.motivo}`);
     callbacks.onErro('sem-suporte', suporte.motivo ?? TEXTOS.arErroSemSuporte);
     return;
   }
 
+  debugLog('pedindo permissão de câmera...');
   let novoStream: MediaStream;
   try {
     novoStream = await comTimeout(
@@ -164,6 +210,7 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
       'tempo-esgotado-permissao'
     );
   } catch (err) {
+    debugLog(`erro ao pedir câmera: ${(err as Error)?.name ?? err}`);
     if (sessaoAtual !== minhaSessao) return;
     const { tipo, mensagem } = mapearErroCamera(err);
     callbacks.onErro(tipo, mensagem);
@@ -174,6 +221,7 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     return;
   }
   stream = novoStream;
+  debugLog('câmera concedida, aguardando primeiro frame...');
 
   video = criarElementoVideo();
   video.srcObject = stream;
@@ -187,28 +235,38 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
       'tempo-esgotado-video'
     );
   } catch (err) {
+    debugLog(`erro/timeout no vídeo: ${err}`);
     console.error(err);
     if (sessaoAtual === minhaSessao) callbacks.onErro('falha-ao-iniciar', TEXTOS.arErroFalhaGenerica);
     return;
   }
   if (sessaoAtual !== minhaSessao) return;
+  debugLog(`vídeo pronto (${video.videoWidth}x${video.videoHeight}), tocando...`);
   await video.play();
   if (sessaoAtual !== minhaSessao) return;
 
   try {
+    debugLog('carregando módulo de rastreamento (MindAR)...');
     const { Controller } = await import('mind-ar/src/image-target/controller.js');
     if (sessaoAtual !== minhaSessao) return;
+    debugLog('módulo carregado, criando controller...');
 
+    let primeiroFrameLogado = false;
     controller = new Controller({
       inputWidth: video.videoWidth,
       inputHeight: video.videoHeight,
       maxTrack: 1,
       onUpdate: (data: MindArUpdateEvent) => {
         if (sessaoAtual !== minhaSessao) return;
+        if (!primeiroFrameLogado && data.type === 'processDone') {
+          primeiroFrameLogado = true;
+          debugLog('primeiro frame de vídeo processado pelo rastreador.');
+        }
         if (data.type !== 'updateMatrix' || data.targetIndex !== ponto.markerIndex) return;
 
         if (!data.worldMatrix) {
           if (marcadorDetectado) {
+            debugLog('marcador perdido.');
             objetoAncorado?.ocultar();
             callbacksAtuais?.onMarcadorPerdido();
           }
@@ -216,6 +274,7 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
         }
         aplicarPose(data.worldMatrix);
         if (!marcadorDetectado) {
+          debugLog('MARCADOR ENCONTRADO!');
           marcadorDetectado = true;
           callbacksAtuais?.onMarcadorEncontrado();
         }
@@ -223,6 +282,7 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     });
     controller.interestedTargetIndex = ponto.markerIndex;
 
+    debugLog('carregando arquivo de marcadores...');
     // `addImageTargets` da MindAR usa `new Promise(async (resolve, reject) => ...)`
     // internamente — se essa função async lançar um erro (ex.: arquivo
     // corrompido/incompatível), a promessa nunca resolve nem rejeita (bug
@@ -231,14 +291,18 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     // permissão de câmera.
     await comTimeout(controller.addImageTargets(CAMINHO_TARGETS), 15000, 'tempo-esgotado-marcadores');
     if (sessaoAtual !== minhaSessao) return;
+    debugLog('marcadores carregados. iniciando câmera AR + rastreamento...');
 
     ativarCameraAR(controller.getProjectionMatrix());
     objetoAncorado = exibirObjetoAr(ponto.objetoTipo, ponto.cor);
     objetoAncorado.ocultar();
 
     controller.dummyRun(video);
+    debugLog('aquecimento (dummyRun) ok. chamando processVideo...');
     controller.processVideo(video);
+    debugLog('processVideo chamado — rastreamento ao vivo ativo.');
   } catch (err) {
+    debugLog(`ERRO: ${(err as Error)?.message ?? err}`);
     console.error(err);
     if (sessaoAtual !== minhaSessao) return;
     const mensagemErro = (err as { message?: string } | undefined)?.message ?? '';
