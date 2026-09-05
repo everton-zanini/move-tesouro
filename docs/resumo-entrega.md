@@ -3,6 +3,29 @@
 > Este resumo cobre a versão atual do projeto, já com a migração de tecnologia de AR (ver
 > "Histórico da migração de AR" abaixo).
 
+## ⚠️ Pendência ativa (em investigação): reconhecimento do marcador não funciona
+
+Depois de corrigir uma sequência de bugs reais (tela preta por WebGL sem canal alfa, `<video>`
+atrás do background por z-index negativo, Worker da MindAR quebrando silenciosamente por uma
+dependência CJS — `ml-matrix` — mal resolvida em modo dev), o pipeline inteiro roda sem erros:
+câmera abre, vídeo aparece, o rastreador processa frames normalmente. **Mas o marcador nunca é
+reconhecido**, mesmo testando localmente com a imagem exata usada para compilar o `.mind` (sem
+foto, sem celular, cópia perfeita) — mais de 20s apontando "para si mesmo" sem sucesso.
+
+**Hipótese atual**: a arte dos cartões (fundo com padrão diagonal em xadrez repetitivo + áreas
+grandes de gradiente liso) pode ser ruim para o algoritmo de features da MindAR (que depende de
+pontos de interesse únicos/não-repetitivos — um padrão muito regular confunde o matching).
+
+**Decisão combinada com o usuário**: pausar a tentativa de corrigir a arte atual e, na próxima
+sessão, **avaliar migrar a estratégia de marcador para QR code** (ou um padrão de alto contraste
+mais simples/determinístico) em vez de um cartão ilustrado com feature-tracking natural — pode
+ser mais confiável de reconhecer, ainda que menos "bonito" visualmente. Retomar por aqui.
+
+Arquivos relevantes: `src/scene/arController.ts` (pipeline + log de diagnóstico visível na tela,
+ainda ativo de propósito — não remover até resolver isto), `tools/markerArt.ts` +
+`tools/compile-markers.ts` (arte/compilação atuais), `vite.config.ts` (`optimizeDeps` — cuidado,
+tem 3 fixes de dependências CJS ali, todos necessários).
+
 ## O que foi implementado
 
 - **Tela inicial**: nome do jogo, slogan, campo de nome da equipe, botões "Começar aventura"
