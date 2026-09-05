@@ -45,6 +45,20 @@ let marcadorDetectado = false;
 let callbacksAtuais: ArCallbacks | null = null;
 let sessaoAtual = 0;
 
+/**
+ * Rede de segurança: o loop interno de rastreamento da MindAR roda "solto"
+ * (não é uma promise que a gente possa aguardar/capturar erro). Se algo
+ * quebrar lá dentro (ex.: WebGL/tfjs incompatível com a GPU do aparelho), o
+ * jogador ficaria travado sem nenhuma mensagem. Enquanto uma sessão de AR
+ * está ativa, qualquer rejeição de promise não tratada vira uma tela de erro
+ * em vez de silêncio total.
+ */
+function onRejeicaoNaoTratada(evento: PromiseRejectionEvent) {
+  if (!callbacksAtuais) return;
+  console.error('Erro não tratado durante a sessão de AR:', evento.reason);
+  callbacksAtuais.onErro('falha-ao-iniciar', TEXTOS.arErroFalhaGenerica);
+}
+
 export function verificarSuporteAR(): { suportado: boolean; motivo?: string } {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     return { suportado: false, motivo: TEXTOS.arErroSemSuporte };
@@ -55,13 +69,39 @@ export function verificarSuporteAR(): { suportado: boolean; motivo?: string } {
   return { suportado: true };
 }
 
+/**
+ * Corre uma promessa com um prazo máximo. Sem isso, se o navegador nunca
+ * resolver nem rejeitar `getUserMedia` (ex.: prompt de permissão que não
+ * aparece por algum motivo do sistema), o jogador ficava travado pra sempre
+ * na tela de "buscando", sem nenhuma mensagem de erro.
+ */
+function comTimeout<T>(promessa: Promise<T>, ms: number, mensagemTimeout: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(mensagemTimeout)), ms);
+    promessa.then(
+      (valor) => {
+        clearTimeout(timer);
+        resolve(valor);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 function mapearErroCamera(err: unknown): { tipo: ArErrorKind; mensagem: string } {
   const nome = (err as { name?: string } | undefined)?.name ?? '';
+  const mensagemErro = (err as { message?: string } | undefined)?.message ?? '';
   if (nome === 'NotAllowedError' || nome === 'SecurityError') {
     return { tipo: 'permissao-negada', mensagem: TEXTOS.arErroCameraNegada };
   }
   if (nome === 'NotFoundError' || nome === 'OverconstrainedError') {
     return { tipo: 'falha-ao-iniciar', mensagem: TEXTOS.arErroCameraNaoEncontrada };
+  }
+  if (mensagemErro === 'tempo-esgotado-permissao') {
+    return { tipo: 'falha-ao-iniciar', mensagem: TEXTOS.arErroTimeoutPermissao };
   }
   return { tipo: 'falha-ao-iniciar', mensagem: TEXTOS.arErroFalhaGenerica };
 }
@@ -101,6 +141,7 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
   callbacksAtuais = callbacks;
   marcadorDetectado = false;
   objetoAncorado = null;
+  window.addEventListener('unhandledrejection', onRejeicaoNaoTratada);
 
   const suporte = verificarSuporteAR();
   if (!suporte.suportado) {
@@ -110,15 +151,20 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
 
   let novoStream: MediaStream;
   try {
-    novoStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    });
+    novoStream = await comTimeout(
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      }),
+      20000,
+      'tempo-esgotado-permissao'
+    );
   } catch (err) {
+    if (sessaoAtual !== minhaSessao) return;
     const { tipo, mensagem } = mapearErroCamera(err);
     callbacks.onErro(tipo, mensagem);
     return;
@@ -132,9 +178,19 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
   video = criarElementoVideo();
   video.srcObject = stream;
 
-  await new Promise<void>((resolve) => {
-    video!.onloadeddata = () => resolve();
-  });
+  try {
+    await comTimeout(
+      new Promise<void>((resolve) => {
+        video!.onloadeddata = () => resolve();
+      }),
+      10000,
+      'tempo-esgotado-video'
+    );
+  } catch (err) {
+    console.error(err);
+    if (sessaoAtual === minhaSessao) callbacks.onErro('falha-ao-iniciar', TEXTOS.arErroFalhaGenerica);
+    return;
+  }
   if (sessaoAtual !== minhaSessao) return;
   await video.play();
   if (sessaoAtual !== minhaSessao) return;
@@ -167,7 +223,13 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     });
     controller.interestedTargetIndex = ponto.markerIndex;
 
-    await controller.addImageTargets(CAMINHO_TARGETS);
+    // `addImageTargets` da MindAR usa `new Promise(async (resolve, reject) => ...)`
+    // internamente — se essa função async lançar um erro (ex.: arquivo
+    // corrompido/incompatível), a promessa nunca resolve nem rejeita (bug
+    // conhecido desse padrão). O timeout garante que o jogador sempre veja
+    // algum retorno em vez de ficar travado pra sempre depois de aceitar a
+    // permissão de câmera.
+    await comTimeout(controller.addImageTargets(CAMINHO_TARGETS), 15000, 'tempo-esgotado-marcadores');
     if (sessaoAtual !== minhaSessao) return;
 
     ativarCameraAR(controller.getProjectionMatrix());
@@ -178,7 +240,10 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     controller.processVideo(video);
   } catch (err) {
     console.error(err);
-    callbacks.onErro('falha-ao-iniciar', TEXTOS.arErroFalhaGenerica);
+    if (sessaoAtual !== minhaSessao) return;
+    const mensagemErro = (err as { message?: string } | undefined)?.message ?? '';
+    const mensagem = mensagemErro === 'tempo-esgotado-marcadores' ? TEXTOS.arErroTimeoutMarcadores : TEXTOS.arErroFalhaGenerica;
+    callbacks.onErro('falha-ao-iniciar', mensagem);
   }
 }
 
@@ -188,6 +253,7 @@ export function marcadorJaDetectado(): boolean {
 
 export function encerrarSessaoAR() {
   sessaoAtual++;
+  window.removeEventListener('unhandledrejection', onRejeicaoNaoTratada);
 
   controller?.dispose();
   controller = null;

@@ -78,6 +78,9 @@ export const TEXTOS = {
   arErroSemSuporte: 'Este navegador não tem acesso à câmera (getUserMedia).',
   arErroCameraNegada: 'A câmera foi bloqueada. Permita o acesso à câmera nas configurações do navegador e tente novamente.',
   arErroCameraNaoEncontrada: 'Não encontramos uma câmera neste dispositivo.',
+  arErroTimeoutPermissao:
+    'A câmera demorou demais para responder. Verifique se a permissão de câmera do navegador está liberada (nas configurações do site ou do app) e tente de novo.',
+  arErroTimeoutMarcadores: 'Não conseguimos carregar os marcadores a tempo. Verifique sua conexão e tente novamente.',
   arErroFalhaGenerica: 'Não foi possível iniciar a experiência de AR agora.',
   arSugestaoDemo: 'Você pode continuar a aventura no Modo demonstração enquanto isso.',
 
