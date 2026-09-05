@@ -287,6 +287,23 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
         }
       }
     });
+
+    // Diagnóstico: o casamento/detecção do marcador roda dentro de um Web
+    // Worker. Um erro lá dentro NÃO aparece no console da página principal
+    // nem dispara nosso listener de 'unhandledrejection' — precisa ouvir o
+    // worker diretamente.
+    const workerInterno = (controller as unknown as { worker?: Worker }).worker;
+    if (workerInterno) {
+      workerInterno.addEventListener('error', (e: ErrorEvent) => {
+        debugLog(`ERRO NO WORKER: ${e.message} (${e.filename}:${e.lineno})`);
+      });
+      workerInterno.addEventListener('messageerror', () => {
+        debugLog('ERRO DE MENSAGEM NO WORKER (messageerror).');
+      });
+    } else {
+      debugLog('aviso: não encontrei controller.worker pra monitorar erros.');
+    }
+
     // Removido `controller.interestedTargetIndex = ponto.markerIndex` de propósito:
     // se o índice do marcador em content.ts não bater com a ordem real dentro
     // de targets.mind, restringir a busca a um único índice faz o
@@ -313,6 +330,12 @@ export async function iniciarSessaoAR(ponto: TreasurePoint, callbacks: ArCallbac
     debugLog('aquecimento (dummyRun) ok. chamando processVideo...');
     controller.processVideo(video);
     debugLog('processVideo chamado — rastreamento ao vivo ativo.');
+
+    setTimeout(() => {
+      if (sessaoAtual === minhaSessao && !primeiroFrameLogado) {
+        debugLog('AVISO: 8s depois de processVideo, nenhum frame foi processado ainda (worker travado?).');
+      }
+    }, 8000);
   } catch (err) {
     debugLog(`ERRO: ${(err as Error)?.message ?? err}`);
     console.error(err);

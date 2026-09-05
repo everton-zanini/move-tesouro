@@ -22,7 +22,7 @@ export default defineConfig({
     // Dependências transitivas CJS usadas dentro da árvore da MindAR (que fica
     // fora do pré-bundling por causa do exclude acima) precisam ser incluídas
     // manualmente para ganhar a conversão CJS -> ESM do esbuild.
-    include: ['@tensorflow/tfjs', 'long', 'seedrandom']
+    include: ['@tensorflow/tfjs', 'long', 'seedrandom', 'ml-matrix']
   },
   worker: {
     format: 'es'
