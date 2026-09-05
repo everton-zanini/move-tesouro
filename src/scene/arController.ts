@@ -162,7 +162,11 @@ function criarElementoVideo(): HTMLVideoElement {
     width: '100%',
     height: '100%',
     objectFit: 'cover',
-    zIndex: '-1'
+    // z-index 0 (nunca negativo): um valor negativo aqui pinta atrás do
+    // background opaco do <body>, ficando invisível mesmo com o vídeo
+    // rodando perfeitamente — era exatamente o bug relatado ("tudo funciona,
+    // mas a câmera não aparece"). Ver comentário em styles.css.
+    zIndex: '0'
   });
   document.body.appendChild(el);
   return el;

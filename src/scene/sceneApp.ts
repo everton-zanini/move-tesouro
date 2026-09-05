@@ -23,7 +23,11 @@ export function getSceneApp(): SceneApp {
   if (instancia) return instancia;
 
   const canvas = document.getElementById('app-canvas') as HTMLCanvasElement;
-  const app = new Application(canvas, {});
+  // alpha:true é essencial pro modo AR — sem isso o contexto WebGL é criado
+  // opaco e o clearColor com alpha=0 (usado pra revelar o vídeo da câmera
+  // atrás do canvas) é simplesmente ignorado pelo navegador, aparecendo
+  // preto sólido mesmo com a câmera funcionando perfeitamente por baixo.
+  const app = new Application(canvas, { graphicsDeviceOptions: { alpha: true } });
 
   app.setCanvasFillMode(FILLMODE_NONE);
   app.setCanvasResolution(RESOLUTION_AUTO);

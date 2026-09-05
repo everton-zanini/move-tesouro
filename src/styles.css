@@ -36,19 +36,26 @@ body {
   background: var(--cor-fundo-1);
 }
 
+/*
+ * Camadas fixas da página (do fundo pro topo): #ar-camera-video (criado
+ * dinamicamente pelo arController, z-index 0) < #app-canvas (1) < #ui-root
+ * (2). Nenhuma usa z-index negativo de propósito: um valor negativo aqui
+ * pinta atrás do background opaco do <body>, ficando invisível — um gotcha
+ * clássico de CSS que já nos mordeu uma vez com o vídeo da câmera da AR.
+ */
 #app-canvas {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 0;
+  z-index: 1;
   display: block;
 }
 
 #ui-root {
   position: fixed;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
 }
 
 .tela {
